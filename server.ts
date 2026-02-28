@@ -293,9 +293,20 @@ async function startServer() {
   });
 
   app.delete("/api/notes/:id", (req, res) => {
-    const { id } = req.params;
-    db.prepare("DELETE FROM notes WHERE id = ?").run(id);
-    res.json({ success: true });
+    try {
+      const { id } = req.params;
+      console.log('Server: Attempting to delete note with id:', id);
+      const result = db.prepare("DELETE FROM notes WHERE id = ?").run(id);
+      console.log('Server: Delete result:', {
+        id,
+        changes: result.changes,
+        lastInsertRowid: result.lastInsertRowid
+      });
+      res.json({ success: true, changes: result.changes });
+    } catch (error) {
+      console.error('Server: Delete error:', error);
+      res.status(500).json({ error: 'Failed to delete note' });
+    }
   });
 
   // Vite 开发服务器配置

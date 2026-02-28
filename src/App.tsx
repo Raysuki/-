@@ -21,7 +21,9 @@ import {
   UserPlus,
   Filter,
   Check,
-  Bell
+  Bell,
+  Edit2,
+  Trash2
 } from 'lucide-react';
 import { cn, generateId } from './lib/utils';
 import { RiskLevel, type Household, type VisitRecord, type CreditRecord, type Note } from './types';
@@ -355,6 +357,68 @@ const LedgerView = ({ onSelect }: { onSelect: (h: Household) => void }) => {
   );
 };
 
+const NoteItem: React.FC<{ note: Note, onEdit: (n: Note) => void, onDelete: (id: string) => void | Promise<void> }> = ({ note, onEdit, onDelete }) => {
+  const [isOpen, setIsOpen] = useState(false);
+
+  return (
+    <div className="relative overflow-hidden rounded-2xl bg-slate-50 group">
+      {/* Background Actions (Revealed on Swipe Left) */}
+      <div className="absolute inset-y-0 right-0 flex z-0">
+        <button 
+          onClick={() => {
+            console.log('Frontend: Edit clicked', note.id);
+            onEdit(note);
+            setIsOpen(false);
+          }}
+          className="w-20 h-full bg-primary text-white flex flex-col items-center justify-center gap-1 active:bg-primary/90 transition-colors"
+        >
+          <Edit2 size={16} />
+          <span className="text-[8px] font-black uppercase tracking-widest">编辑</span>
+        </button>
+        <button 
+          onClick={() => {
+            console.log('Frontend: Delete clicked', note.id);
+            onDelete(note.id);
+            setIsOpen(false);
+          }}
+          className="w-20 h-full bg-red-500 text-white flex flex-col items-center justify-center gap-1 active:bg-red-600 transition-colors"
+        >
+          <Trash2 size={16} />
+          <span className="text-[8px] font-black uppercase tracking-widest">删除</span>
+        </button>
+      </div>
+
+      {/* Foreground Content (Draggable) */}
+      <motion.div 
+        drag="x"
+        dragConstraints={{ left: -160, right: 0 }}
+        dragElastic={0.1}
+        onDragEnd={(_, info) => {
+          // If dragged left more than 40px, or velocity is high, snap open
+          if (info.offset.x < -40 || info.velocity.x < -500) {
+            setIsOpen(true);
+          } else {
+            setIsOpen(false);
+          }
+        }}
+        animate={{ x: isOpen ? -160 : 0 }}
+        className="bg-white p-5 border border-slate-50 shadow-sm space-y-3 relative z-10 touch-pan-y cursor-grab active:cursor-grabbing"
+      >
+        <p className="text-sm text-slate-700 leading-relaxed font-medium whitespace-pre-wrap">{note.content}</p>
+        <div className="flex items-center justify-between">
+          <div className="text-[9px] text-slate-400 font-black uppercase tracking-widest">
+            {new Date(note.createdAt).toLocaleString()}
+          </div>
+          {/* Desktop/Mobile Hint */}
+          <div className="text-[8px] text-slate-300 font-bold uppercase tracking-widest">
+            {isOpen ? '向右滑动关闭' : '向左滑动操作'}
+          </div>
+        </div>
+      </motion.div>
+    </div>
+  );
+};
+
 const NotesView = () => {
   const [notes, setNotes] = useState<Note[]>([]);
   const [newNote, setNewNote] = useState("");
@@ -399,9 +463,19 @@ const NotesView = () => {
   };
 
   const handleDelete = async (id: string) => {
-    if (!confirm('确定删除这条记录吗？')) return;
-    await fetch(`/api/notes/${id}`, { method: 'DELETE' });
-    fetchNotes();
+    if (!window.confirm('确定删除这条记录吗？')) return;
+    try {
+      console.log('Deleting note with id:', id);
+      const res = await fetch(`/api/notes/${id}`, { method: 'DELETE' });
+      if (res.ok) {
+        console.log('Delete successful');
+        fetchNotes();
+      } else {
+        console.error('Delete failed with status:', res.status);
+      }
+    } catch (err) {
+      console.error('Delete error:', err);
+    }
   };
 
   const startEdit = (note: Note) => {
@@ -448,28 +522,12 @@ const NotesView = () => {
           <div className="text-center py-10 text-slate-300 text-xs font-bold uppercase tracking-widest">暂无记录</div>
         ) : (
           notes.map(note => (
-            <div key={note.id} className="bg-white p-5 rounded-2xl border border-slate-50 shadow-sm space-y-3 relative group">
-              <p className="text-sm text-slate-700 leading-relaxed font-medium whitespace-pre-wrap">{note.content}</p>
-              <div className="flex items-center justify-between">
-                <div className="text-[9px] text-slate-400 font-black uppercase tracking-widest">
-                  {new Date(note.createdAt).toLocaleString()}
-                </div>
-                <div className="flex gap-2 opacity-0 group-hover:opacity-100 transition-opacity">
-                  <button 
-                    onClick={() => startEdit(note)}
-                    className="text-[9px] font-black text-primary uppercase tracking-widest hover:underline"
-                  >
-                    编辑
-                  </button>
-                  <button 
-                    onClick={() => handleDelete(note.id)}
-                    className="text-[9px] font-black text-red-500 uppercase tracking-widest hover:underline"
-                  >
-                    删除
-                  </button>
-                </div>
-              </div>
-            </div>
+            <NoteItem 
+              key={note.id} 
+              note={note} 
+              onEdit={startEdit} 
+              onDelete={handleDelete} 
+            />
           ))
         )}
       </div>

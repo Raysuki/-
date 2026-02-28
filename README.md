@@ -1,4 +1,20 @@
+<div align="center">
+<img width="1200" height="475" alt="GHBanner" src="https://github.com/user-attachments/assets/0aa67016-6eaf-458a-adb2-6e31a0763ed6" />
+</div>
 
-# 串门宝-智治北疆网格员工作台
+# Run and deploy your AI Studio app
 
-这是袁思琪的赛道一作品。
+This contains everything you need to run your app locally.
+
+View your app in AI Studio: https://ai.studio/apps/dd1f33fd-4c22-494b-8411-405d69e6b24e
+
+## Run Locally
+
+**Prerequisites:**  Node.js
+
+
+1. Install dependencies:
+   `npm install`
+2. Set the `GEMINI_API_KEY` in [.env.local](.env.local) to your Gemini API key
+3. Run the app:
+   `npm run dev`
