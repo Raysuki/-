@@ -1,14 +1,9 @@
-<div align="center">
-<img width="1200" height="475" alt="GHBanner" src="https://github.com/user-attachments/assets/0aa67016-6eaf-458a-adb2-6e31a0763ed6" />
-</div>
 
-# Run and deploy your AI Studio app
+# 串门宝-智治北疆网格员工作台
 
-This contains everything you need to run your app locally.
+这是袁思琪的赛道一作品。
 
-View your app in AI Studio: https://ai.studio/apps/dd1f33fd-4c22-494b-8411-405d69e6b24e
-
-## Run Locally
+## 想要本地运行，请完成下面操作：
 
 **Prerequisites:**  Node.js
 
