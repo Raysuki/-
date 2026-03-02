@@ -1,7 +1,0 @@
-{
-  "name": "串门宝 - 智治北疆网格员工作台",
-  "description": "聚焦科右前旗乡村治理，集智能巡访、积分管理、民情记录与离线数据交互于一体的数字化工具。",
-  "requestFramePermissions": [
-    "camera"
-  ]
-}
