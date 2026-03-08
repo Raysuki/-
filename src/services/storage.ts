@@ -19,17 +19,64 @@ const set = (key: string, data: any) => {
   localStorage.setItem(key, JSON.stringify(data));
 };
 
+const normalizeRiskLevel = (level: any): RiskLevel => {
+  const s = String(level || "").toUpperCase().trim();
+  if (s === 'RED') return RiskLevel.RED;
+  if (s === 'YELLOW') return RiskLevel.YELLOW;
+  return RiskLevel.GREEN;
+};
+
+/**
+ * CMB Storage Service v1.0.2 - Robust Edition
+ */
 export const storage = {
   // Households
   getHouseholds: (): Household[] => {
-    const data = get(KEYS.HOUSEHOLDS) || [];
-    return data.map((h: any) => ({
-      ...h,
-      name: String(h.name || "未命名"),
-      skills: Array.isArray(h.skills) ? h.skills : (typeof h.skills === 'string' ? h.skills.split(/[,，]/).map((s: string) => s.trim()).filter(Boolean) : [])
-    }));
+    try {
+      const rawData = get(KEYS.HOUSEHOLDS);
+      const data = Array.isArray(rawData) ? rawData : [];
+      
+      // Normalize on read to handle any legacy malformed data
+      return data.filter(h => h && typeof h === 'object').map((h: any) => ({
+        ...h,
+        id: String(h.id || Math.random().toString(36).substr(2, 9)),
+        name: String(h.name || "未命名"),
+        phone: String(h.phone || ""),
+        address: String(h.address || ""),
+        riskLevel: normalizeRiskLevel(h.riskLevel),
+        riskReason: String(h.riskReason || ""),
+        notes: String(h.notes || ""),
+        members: String(h.members || ""),
+        lastVisitedAt: h.lastVisitedAt || null,
+        skills: typeof h.skills === 'string' 
+          ? h.skills.split(',').map((s: string) => s.trim()).filter(Boolean) 
+          : (Array.isArray(h.skills) ? h.skills : [])
+      }));
+    } catch (e) {
+      console.error("getHouseholds failed:", e);
+      return [];
+    }
   },
-  saveHouseholds: (data: Household[]) => set(KEYS.HOUSEHOLDS, data),
+  saveHouseholds: (data: any[]) => {
+    if (!Array.isArray(data)) return;
+    
+    const normalized = data.filter(Boolean).map(h => ({
+      ...h,
+      id: String(h.id || Math.random().toString(36).substr(2, 9)),
+      name: String(h.name || "未命名"),
+      phone: String(h.phone || ""),
+      address: String(h.address || ""),
+      riskLevel: normalizeRiskLevel(h.riskLevel),
+      riskReason: String(h.riskReason || ""),
+      notes: String(h.notes || ""),
+      members: String(h.members || ""),
+      lastVisitedAt: h.lastVisitedAt || null,
+      skills: typeof h.skills === 'string' 
+        ? h.skills.split(',').map((s: string) => s.trim()).filter(Boolean) 
+        : (Array.isArray(h.skills) ? h.skills : [])
+    }));
+    set(KEYS.HOUSEHOLDS, normalized);
+  },
   
   // Settings
   getSettings: () => get(KEYS.SETTINGS) || { village_name: '科右前旗-红峰村', user_name: '李姐', last_export_at: '1970-01-01T00:00:00.000Z' },
@@ -57,7 +104,14 @@ export const storage = {
   },
 
   // Visits
-  getVisits: () => get(KEYS.VISITS) || [],
+  getVisits: (): VisitRecord[] => {
+    const raw = get(KEYS.VISITS) || [];
+    const households = storage.getHouseholds();
+    return raw.map((v: any) => ({
+      ...v,
+      householdName: v.householdName || (households.find(h => String(h.id) === String(v.householdId))?.name || "未知村民")
+    }));
+  },
   addVisit: (visit: any) => {
     const visits = storage.getVisits();
     visits.push(visit);
@@ -73,7 +127,14 @@ export const storage = {
   },
 
   // Credits
-  getCreditsHistory: () => get(KEYS.CREDITS) || [],
+  getCreditsHistory: (): CreditRecord[] => {
+    const raw = get(KEYS.CREDITS) || [];
+    const households = storage.getHouseholds();
+    return raw.map((c: any) => ({
+      ...c,
+      householdName: c.householdName || (households.find(h => String(h.id) === String(c.householdId))?.name || "未知村民")
+    }));
+  },
   addCredit: (record: CreditRecord) => {
     const history = storage.getCreditsHistory();
     history.push(record);

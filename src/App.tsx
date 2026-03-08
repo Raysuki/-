@@ -29,6 +29,20 @@ import { cn, generateId } from './lib/utils';
 import { RiskLevel, type Household, type VisitRecord, type CreditRecord, type Note } from './types';
 import * as XLSX from 'xlsx';
 import { storage } from './services/storage';
+import ExcelJS from 'exceljs';
+
+const handleImageUpload = (e: React.ChangeEvent<HTMLInputElement>, callback: (base64: string) => void) => {
+  const file = e.target.files?.[0];
+  console.log("Image upload triggered:", file?.name);
+  if (file) {
+    const reader = new FileReader();
+    reader.onloadend = () => {
+      console.log("Image loaded as base64");
+      callback(reader.result as string);
+    };
+    reader.readAsDataURL(file);
+  }
+};
 
 // --- Components ---
 
@@ -58,12 +72,15 @@ const TabButton = ({ active, icon: Icon, label, onClick, center }: { active: boo
 );
 
 const Badge = ({ level }: { level: RiskLevel }) => {
-  const configs = {
+  const configs: Record<string, { color: string, label: string }> = {
     [RiskLevel.RED]: { color: "bg-primary text-white border-primary/20", label: "红" },
     [RiskLevel.YELLOW]: { color: "bg-amber-500 text-white border-amber-600/20", label: "黄" },
     [RiskLevel.GREEN]: { color: "bg-emerald-600 text-white border-emerald-700/20", label: "绿" },
   };
-  const config = configs[level];
+  
+  const safeLevel = String(level || "").toUpperCase().trim();
+  const config = configs[safeLevel] || configs[RiskLevel.GREEN];
+  
   return (
     <span className={cn("w-5 h-5 flex items-center justify-center rounded-full text-[9px] font-black border shadow-sm", config.color)}>
       {config.label}
@@ -269,27 +286,42 @@ const TodoView = ({ onVisit, onExtraVisit, settings, onUpdateSetting }: { onVisi
 
 const AVAILABLE_SKILLS = ["草编", "粘豆包", "扭扭棒", "剪纸", "刺绣", "养殖", "种植"];
 
-const LedgerView = ({ onSelect }: { onSelect: (h: Household) => void }) => {
-  const [households, setHouseholds] = useState<Household[]>([]);
+const LedgerView = ({ households, onSelect }: { households: Household[], onSelect: (h: Household) => void }) => {
   const [search, setSearch] = useState("");
 
-  const fetchHouseholds = () => {
-    setHouseholds(storage.getHouseholds());
-  };
-
-  useEffect(() => {
-    fetchHouseholds();
-  }, []);
-
-  const filtered = households.filter(h => {
-    const searchLower = search.toLowerCase();
-    const matchesName = (h.name || "").toLowerCase().includes(searchLower);
-    const skills = Array.isArray(h.skills) ? h.skills : (typeof h.skills === 'string' ? (h.skills as string).split(/[,，]/).filter(Boolean) : []);
-    const matchesSkills = skills.some(s => s.toLowerCase().includes(searchLower));
-    const matchesRisk = (h.riskLevel || "").toLowerCase().includes(searchLower);
-    const matchesReason = (h.riskReason || "").toLowerCase().includes(searchLower);
-    return matchesName || matchesSkills || matchesRisk || matchesReason;
-  }).sort((a, b) => (a.name || "").localeCompare(b.name || ""));
+  let filtered: Household[] = [];
+  try {
+    const safeHouseholds = Array.isArray(households) ? households : [];
+    filtered = safeHouseholds.filter(h => {
+      if (!h || typeof h !== 'object') return false;
+      
+      const searchLower = (search || "").toLowerCase();
+      const name = String(h.name || "未命名").toLowerCase();
+      const riskLevel = String(h.riskLevel || "GREEN").toLowerCase();
+      const riskReason = String(h.riskReason || "无").toLowerCase();
+      
+      // Extremely safe skills check
+      let skillsArr: string[] = [];
+      if (Array.isArray(h.skills)) {
+        skillsArr = h.skills;
+      } else if (typeof h.skills === 'string') {
+        skillsArr = (h.skills as string).split(',').map(s => s.trim()).filter(Boolean);
+      }
+      
+      const matchesSkills = skillsArr.some(s => {
+        if (!s) return false;
+        return String(s).toLowerCase().includes(searchLower);
+      });
+      
+      return name.includes(searchLower) || 
+             riskLevel.includes(searchLower) || 
+             riskReason.includes(searchLower) || 
+             matchesSkills;
+    }).sort((a, b) => String(a.name || "").localeCompare(String(b.name || "")));
+  } catch (err) {
+    console.error("LedgerView filter fatal error:", err);
+    filtered = [];
+  }
 
   return (
     <div className="p-0 space-y-0">
@@ -311,8 +343,9 @@ const LedgerView = ({ onSelect }: { onSelect: (h: Household) => void }) => {
 
       <div className="bg-white">
         {filtered.map((h, i) => {
-          const firstChar = h.name[0];
-          const prevChar = i > 0 ? filtered[i - 1].name[0] : null;
+          const nameStr = String(h.name || "未命名");
+          const firstChar = nameStr[0] || "?";
+          const prevChar = i > 0 ? String(filtered[i - 1].name || "")[0] : null;
           const showHeader = firstChar !== prevChar;
 
           return (
@@ -331,11 +364,11 @@ const LedgerView = ({ onSelect }: { onSelect: (h: Household) => void }) => {
                     "w-10 h-10 rounded-xl flex items-center justify-center text-white text-sm font-serif font-bold",
                     h.riskLevel === RiskLevel.RED ? "bg-primary" : h.riskLevel === RiskLevel.YELLOW ? "bg-amber-500" : "bg-emerald-600"
                   )}>
-                    {h.name[0]}
+                    {firstChar}
                   </div>
                   <div>
                     <div className="flex items-center gap-2">
-                      <span className="font-bold text-slate-900">{h.name}</span>
+                      <span className="font-bold text-slate-900">{nameStr}</span>
                       <Badge level={h.riskLevel} />
                     </div>
                     <div className="flex flex-wrap gap-1 mt-1">
@@ -344,7 +377,7 @@ const LedgerView = ({ onSelect }: { onSelect: (h: Household) => void }) => {
                           {h.riskReason}
                         </span>
                       )}
-                      {h.skills && (Array.isArray(h.skills) ? h.skills : String(h.skills).split(/[,，]/)).map(s => <SkillBadge key={String(s)} skill={String(s)} />)}
+                      {(Array.isArray(h.skills) ? h.skills : []).map(s => s && <SkillBadge key={s} skill={s} />)}
                     </div>
                   </div>
                 </div>
@@ -545,9 +578,11 @@ const CreditsView = ({ households, onRefresh }: { households: Household[], onRef
 
   const handleIssue = async () => {
     if (!issuance.householdId) return alert("请选择村民");
+    const h = households.find(h => String(h.id) === String(issuance.householdId));
     const record = {
       id: generateId(),
       householdId: issuance.householdId,
+      householdName: h ? h.name : "未知",
       type: issuance.points >= 0 ? 'EARN' : 'SPEND',
       category: issuance.category,
       points: Math.abs(issuance.points),
@@ -561,7 +596,9 @@ const CreditsView = ({ households, onRefresh }: { households: Household[], onRef
     fetchData();
   };
 
-  const filteredIssuance = households.filter(h => h.name.includes(issuance.search));
+  const filteredIssuance = (Array.isArray(households) ? households : []).filter(h => 
+    h && String(h.name || "").includes(issuance.search)
+  );
 
   if (subPage === 'issue') {
     return (
@@ -654,10 +691,28 @@ const CreditsView = ({ households, onRefresh }: { households: Household[], onRef
 
             <div className="space-y-2">
               <label className="text-[10px] font-black text-slate-400 uppercase tracking-widest block">第五步：拍照上传 (可选)</label>
-              <button className="w-full h-32 bg-slate-50 border-2 border-dashed border-slate-200 rounded-2xl flex flex-col items-center justify-center text-slate-400 gap-2">
-                <Camera size={24} />
-                <span className="text-[9px] font-black uppercase tracking-widest">点击拍照留存凭证</span>
-              </button>
+              <div className="relative">
+                <input 
+                  type="file" 
+                  accept="image/*" 
+                  className="hidden" 
+                  id="credit-image-upload"
+                  onChange={(e) => handleImageUpload(e, (base64) => setIssuance({...issuance, image: base64}))}
+                />
+                <label 
+                  htmlFor="credit-image-upload"
+                  className="w-full h-32 bg-slate-50 border-2 border-dashed border-slate-200 rounded-2xl flex flex-col items-center justify-center text-slate-400 gap-2 cursor-pointer active:bg-slate-100 transition-colors overflow-hidden"
+                >
+                  {issuance.image ? (
+                    <img src={issuance.image} className="w-full h-full object-cover" alt="Preview" />
+                  ) : (
+                    <>
+                      <Camera size={24} />
+                      <span className="text-[9px] font-black uppercase tracking-widest">点击拍照留存凭证</span>
+                    </>
+                  )}
+                </label>
+              </div>
             </div>
 
             <button 
@@ -722,7 +777,7 @@ const CreditsView = ({ households, onRefresh }: { households: Household[], onRef
                     </div>
                     <div>
                       <div className="flex items-center gap-2">
-                        <span className="font-bold text-slate-900">{item.householdName}</span>
+                        <span className="font-bold text-slate-900">{item.householdName || "未知村民"}</span>
                         <span className={cn(
                           "px-2 py-0.5 rounded-md text-[8px] font-black uppercase tracking-widest",
                           item.type === 'EARN' ? "bg-emerald-100 text-emerald-600" : "bg-primary/10 text-primary"
@@ -776,30 +831,121 @@ const DataView = ({ onImportSuccess }: { onImportSuccess: () => void }) => {
   }, []);
 
   const handleExport = async (type: 'HOUSEHOLD' | 'CREDIT' | 'VISIT') => {
-    let data = [];
+    const workbook = new ExcelJS.Workbook();
+    const sheetName = type === 'HOUSEHOLD' ? '邻里册' : type === 'CREDIT' ? '积分记录' : '走访记录';
+    const worksheet = workbook.addWorksheet(sheetName);
+    
     let filename = "";
-    let sheetName = "";
 
     if (type === 'HOUSEHOLD') {
-      data = storage.getHouseholds();
+      const data = storage.getHouseholds();
       filename = `串门宝_邻里册导出_${new Date().toLocaleDateString()}.xlsx`;
-      sheetName = "邻里册";
+      worksheet.columns = [
+        { header: 'ID', key: 'id', width: 10 },
+        { header: '姓名', key: 'name', width: 15 },
+        { header: '电话', key: 'phone', width: 15 },
+        { header: '地址', key: 'address', width: 30 },
+        { header: '风险等级', key: 'riskLevel', width: 10 },
+        { header: '原因', key: 'riskReason', width: 20 },
+        { header: '备注', key: 'notes', width: 20 },
+        { header: '特长', key: 'skills', width: 20 },
+        { header: '家庭成员', key: 'members', width: 30 }
+      ];
+      worksheet.addRows(data.map(h => ({
+        ...h,
+        skills: Array.isArray(h.skills) ? h.skills.join(',') : h.skills
+      })));
     } else if (type === 'CREDIT') {
-      data = storage.getCreditsHistory();
+      const raw = storage.getCreditsHistory();
       filename = `串门宝_积分记录导出_${new Date().toLocaleDateString()}.xlsx`;
-      sheetName = "积分记录";
+      worksheet.columns = [
+        { header: '村民姓名', key: 'householdName', width: 15 },
+        { header: '类型', key: 'typeText', width: 10 },
+        { header: '项目', key: 'category', width: 15 },
+        { header: '分值', key: 'points', width: 10 },
+        { header: '描述', key: 'description', width: 30 },
+        { header: '时间', key: 'time', width: 25 },
+        { header: '凭证照片', key: 'photo', width: 25 }
+      ];
+      
+      for (const c of raw) {
+        const row = worksheet.addRow({
+          householdName: c.householdName,
+          typeText: c.type === 'EARN' ? '获得' : '支出',
+          category: c.category,
+          points: c.points,
+          description: c.description,
+          time: new Date(c.createdAt).toLocaleString()
+        });
+        
+        if (c.evidenceImage) {
+          try {
+            const imageId = workbook.addImage({
+              base64: c.evidenceImage,
+              extension: 'png',
+            });
+            worksheet.addImage(imageId, {
+              tl: { col: 6, row: row.number - 1 },
+              ext: { width: 150, height: 100 }
+            });
+            row.height = 80;
+          } catch (e) {
+            console.error("Error adding image to excel", e);
+          }
+        }
+      }
     } else if (type === 'VISIT') {
-      data = storage.getVisits();
+      const raw = storage.getVisits();
       filename = `串门宝_走访记录导出_${new Date().toLocaleDateString()}.xlsx`;
-      sheetName = "走访记录";
+      worksheet.columns = [
+        { header: '被访人', key: 'householdName', width: 15 },
+        { header: '走访人', key: 'visitorName', width: 15 },
+        { header: '走访时间', key: 'time', width: 25 },
+        { header: '身体状况', key: 'status', width: 15 },
+        { header: '走访内容', key: 'content', width: 40 },
+        { header: '现场照片', key: 'photo', width: 25 }
+      ];
+      
+      for (const v of raw) {
+        const row = worksheet.addRow({
+          householdName: v.householdName,
+          visitorName: v.visitorName,
+          time: new Date(v.visitedAt).toLocaleString(),
+          status: v.status,
+          content: v.content
+        });
+        
+        if (v.image) {
+          try {
+            const imageId = workbook.addImage({
+              base64: v.image,
+              extension: 'png',
+            });
+            worksheet.addImage(imageId, {
+              tl: { col: 5, row: row.number - 1 },
+              ext: { width: 150, height: 100 }
+            });
+            row.height = 80;
+          } catch (e) {
+            console.error("Error adding image to excel", e);
+          }
+        }
+      }
     }
 
-    const ws = XLSX.utils.json_to_sheet(data);
-    const wb = XLSX.utils.book_new();
-    XLSX.utils.book_append_sheet(wb, ws, sheetName);
-    XLSX.writeFile(wb, filename);
+    // Styling
+    worksheet.getRow(1).font = { bold: true };
+    worksheet.getRow(1).alignment = { vertical: 'middle', horizontal: 'center' };
 
-    // Confirm export to update last_export_at
+    const buffer = await workbook.xlsx.writeBuffer();
+    const blob = new Blob([buffer], { type: 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet' });
+    const url = window.URL.createObjectURL(blob);
+    const anchor = document.createElement('a');
+    anchor.href = url;
+    anchor.download = filename;
+    anchor.click();
+    window.URL.revokeObjectURL(url);
+
     storage.saveSetting('last_export_at', new Date().toISOString());
     setExportType(null);
     fetchData();
@@ -815,25 +961,9 @@ const DataView = ({ onImportSuccess }: { onImportSuccess: () => void }) => {
       const wb = XLSX.read(bstr, { type: 'binary' });
       const wsname = wb.SheetNames[0];
       const ws = wb.Sheets[wsname];
-      const rawData = XLSX.utils.sheet_to_json(ws);
-      
-      const normalizedData = (rawData as any[]).map(row => ({
-        ...row,
-        id: row.id || generateId(),
-        name: String(row.name || "未命名"),
-        phone: String(row.phone || ""),
-        address: String(row.address || ""),
-        riskLevel: row.riskLevel || RiskLevel.GREEN,
-        riskReason: String(row.riskReason || ""),
-        notes: String(row.notes || ""),
-        skills: typeof row.skills === 'string' 
-          ? row.skills.split(/[,，]/).map((s: string) => s.trim()).filter(Boolean) 
-          : (Array.isArray(row.skills) ? row.skills : []),
-        lastVisitedAt: row.lastVisitedAt || null,
-        members: String(row.members || "")
-      }));
+      const data = XLSX.utils.sheet_to_json(ws);
 
-      storage.saveHouseholds(normalizedData as Household[]);
+      storage.saveHouseholds(data as Household[]);
       await fetchData();
       onImportSuccess();
       alert("导入成功，已覆盖旧数据");
@@ -958,6 +1088,19 @@ const DataView = ({ onImportSuccess }: { onImportSuccess: () => void }) => {
         </p>
       </div>
 
+      <button 
+        onClick={() => {
+          if (window.confirm("确定要清空所有本地数据并重置系统吗？此操作不可撤销。")) {
+            localStorage.clear();
+            window.location.reload();
+          }
+        }}
+        className="w-full py-4 bg-red-50 border border-red-100 rounded-[2rem] text-red-600 flex items-center justify-center gap-3 hover:bg-red-100 transition-colors active:scale-[0.98]"
+      >
+        <Trash2 size={18} />
+        <span className="text-[10px] font-black uppercase tracking-widest">重置系统（清空所有缓存数据）</span>
+      </button>
+
       {/* Visits Modal */}
       <AnimatePresence>
         {showVisits && (
@@ -981,7 +1124,7 @@ const DataView = ({ onImportSuccess }: { onImportSuccess: () => void }) => {
                   visits.map(v => (
                     <div key={v.id} className="p-4 bg-slate-50 rounded-2xl border border-slate-100 space-y-2">
                       <div className="flex justify-between items-center">
-                        <span className="font-bold text-slate-900">{v.householdName}</span>
+                        <span className="font-bold text-slate-900">{v.householdName || "未知村民"}</span>
                         <span className={cn(
                           "px-2 py-0.5 rounded-md text-[8px] font-black uppercase tracking-widest",
                           v.status === '良好' ? "bg-emerald-100 text-emerald-600" : "bg-amber-100 text-amber-600"
@@ -1062,6 +1205,18 @@ export default function App() {
   };
 
   useEffect(() => {
+    // Data Repair: Ensure all households have valid skills array
+    try {
+      const current = storage.getHouseholds();
+      const needsRepair = current.some(h => !Array.isArray(h.skills));
+      if (needsRepair) {
+        console.log("System: Repairing malformed data...");
+        storage.saveHouseholds(current);
+        fetchHouseholds();
+      }
+    } catch (e) {
+      console.error("Data repair failed:", e);
+    }
     fetchHouseholds();
   }, []);
 
@@ -1087,6 +1242,7 @@ export default function App() {
     const record = {
       id: generateId(),
       householdId: selectedHousehold.id,
+      householdName: selectedHousehold.name,
       visitorName: settings.user_name || "李姐",
       visitedAt: new Date().toISOString(),
       content: visitForm.content,
@@ -1129,7 +1285,7 @@ export default function App() {
             transition={{ duration: 0.3, ease: "easeOut" }}
           >
             {activeTab === 'todo' && <TodoView onVisit={handleVisit} onExtraVisit={handleExtraVisit} settings={settings} onUpdateSetting={updateSetting} />}
-            {activeTab === 'ledger' && <LedgerView onSelect={handleSelectHousehold} />}
+            {activeTab === 'ledger' && <LedgerView households={allHouseholds} onSelect={handleSelectHousehold} />}
             {activeTab === 'notes' && <NotesView />}
             {activeTab === 'credits' && <CreditsView households={allHouseholds} onRefresh={fetchHouseholds} />}
             {activeTab === 'data' && <DataView onImportSuccess={fetchHouseholds} />}
@@ -1251,15 +1407,14 @@ export default function App() {
                 <label className="text-[10px] font-black text-slate-400 uppercase tracking-widest block">家庭技能管理</label>
                 <div className="flex flex-wrap gap-2">
                   {AVAILABLE_SKILLS.map(s => {
-                    const skills = Array.isArray(selectedHousehold.skills) ? selectedHousehold.skills : [];
-                    const isSelected = skills.includes(s);
+                    const isSelected = selectedHousehold.skills.includes(s);
                     return (
                       <button 
                         key={s}
                         onClick={() => {
                           const newSkills = isSelected 
-                            ? skills.filter(sk => sk !== s)
-                            : [...skills, s];
+                            ? selectedHousehold.skills.filter(sk => sk !== s)
+                            : [...selectedHousehold.skills, s];
                           updateHousehold({...selectedHousehold, skills: newSkills});
                         }}
                         className={cn(
@@ -1393,10 +1548,28 @@ export default function App() {
 
                   <div>
                     <label className="text-[10px] font-black text-slate-400 uppercase tracking-widest mb-2 block">第四步：拍照上传</label>
-                    <button className="w-full h-32 bg-slate-50 border-2 border-dashed border-slate-200 rounded-2xl flex flex-col items-center justify-center text-slate-400 gap-2 active:bg-slate-100 transition-colors">
-                      <Camera size={24} />
-                      <span className="text-[9px] font-black uppercase tracking-widest">点击拍照留存凭证</span>
-                    </button>
+                    <div className="relative">
+                      <input 
+                        type="file" 
+                        accept="image/*" 
+                        className="hidden" 
+                        id="extra-visit-image-upload"
+                        onChange={(e) => handleImageUpload(e, (base64) => setVisitForm({...visitForm, image: base64}))}
+                      />
+                      <label 
+                        htmlFor="extra-visit-image-upload"
+                        className="w-full h-32 bg-slate-50 border-2 border-dashed border-slate-200 rounded-2xl flex flex-col items-center justify-center text-slate-400 gap-2 cursor-pointer active:bg-slate-100 transition-colors overflow-hidden"
+                      >
+                        {visitForm.image ? (
+                          <img src={visitForm.image} className="w-full h-full object-cover" alt="Preview" />
+                        ) : (
+                          <>
+                            <Camera size={24} />
+                            <span className="text-[9px] font-black uppercase tracking-widest">点击拍照留存凭证</span>
+                          </>
+                        )}
+                      </label>
+                    </div>
                   </div>
 
                   <button 
@@ -1456,10 +1629,28 @@ export default function App() {
               <div className="grid grid-cols-2 gap-4">
                 <div>
                   <label className="text-[9px] font-black text-slate-400 uppercase tracking-widest mb-1.5 block">拍照上传</label>
-                  <button className="w-full h-24 bg-slate-50 border-2 border-dashed border-slate-200 rounded-xl flex flex-col items-center justify-center text-slate-400 gap-1 active:bg-slate-100 transition-colors">
-                    <Camera size={20} />
-                    <span className="text-[8px] font-black uppercase tracking-widest">点击拍照</span>
-                  </button>
+                  <div className="relative">
+                    <input 
+                      type="file" 
+                      accept="image/*" 
+                      className="hidden" 
+                      id="visit-form-image-upload"
+                      onChange={(e) => handleImageUpload(e, (base64) => setVisitForm({...visitForm, image: base64}))}
+                    />
+                    <label 
+                      htmlFor="visit-form-image-upload"
+                      className="w-full h-24 bg-slate-50 border-2 border-dashed border-slate-200 rounded-xl flex flex-col items-center justify-center text-slate-400 gap-1 cursor-pointer active:bg-slate-100 transition-colors overflow-hidden"
+                    >
+                      {visitForm.image ? (
+                        <img src={visitForm.image} className="w-full h-full object-cover" alt="Preview" />
+                      ) : (
+                        <>
+                          <Camera size={20} />
+                          <span className="text-[8px] font-black uppercase tracking-widest">点击拍照</span>
+                        </>
+                      )}
+                    </label>
+                  </div>
                 </div>
                 <div>
                   <label className="text-[9px] font-black text-slate-400 uppercase tracking-widest mb-1.5 block">状况评估</label>

@@ -20,15 +20,18 @@ export interface Household {
 export interface VisitRecord {
   id: string;
   householdId: string;
+  householdName: string;
   visitorName: string;
   visitedAt: string;
   content: string; // 走访记录
   status: string; // 身体状况等
+  image?: string;
 }
 
 export interface CreditRecord {
   id: string;
   householdId: string;
+  householdName: string;
   type: 'EARN' | 'SPEND';
   category: string; // 环境卫生, 志愿服务等
   points: number;
