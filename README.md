@@ -7,6 +7,7 @@
 1. 初始上传后无数据，请下载列表中的测试数据：TestData.xlsx
 2. 点击导航栏“数据”，点击“导入邻里册”，上传测试数据
    即可正式开始使用
+<img width="416" height="706" alt="98cc4dd6-92dc-4409-abbd-9dd98462fb52" src="https://github.com/user-attachments/assets/dfc6be20-4fc8-4460-8a8b-def3ab05a0e8" />
 
 
 ## 🌟 核心功能
